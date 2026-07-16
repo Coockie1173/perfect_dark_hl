@@ -14,6 +14,7 @@
 #include "video.h"
 #include "input.h"
 #include "config.h"
+#include "hlmove.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -1742,7 +1743,7 @@ static const struct menubind menuBinds[] = {
 	{ CK_X,      "Reload [X]\n",        "N64 Ext X\n" },
 	{ CK_Y,      "Next Weapon [Y]\n",   "N64 Ext Y\n" },
 	{ CK_8000,   "Cycle Crouch [+]\n",  "N64 Ext 8000\n" },
-	{ CK_4000,   "Half Crouch [+]\n",   "N64 Ext 4000\n" },
+	{ CK_4000,   "Jump [+]\n",           "N64 Ext 4000\n" },
 	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
 	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
 	{ CK_CANCEL, "UI Cancel [+]\n",     "EXT UI Cancel\n" },
@@ -1945,6 +1946,291 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 	return 0;
 }
 
+static MenuItemHandlerResult menuhandlerHlMaxSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.maxspeed + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.maxspeed = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.0f", g_HlMoveCfg.maxspeed);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlBhopMaxSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.bhop_maxspeed + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.bhop_maxspeed = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.0f", g_HlMoveCfg.bhop_maxspeed);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlFriction(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.friction * 10.0f + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.friction = (f32)data->slider.value / 10.0f;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f", g_HlMoveCfg.friction);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlStopSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.stopspeed + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.stopspeed = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.0f", g_HlMoveCfg.stopspeed);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlAccelerate(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.accelerate * 10.0f + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.accelerate = (f32)data->slider.value / 10.0f;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f", g_HlMoveCfg.accelerate);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlAirAccelerate(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.airaccelerate * 10.0f + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.airaccelerate = (f32)data->slider.value / 10.0f;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f", g_HlMoveCfg.airaccelerate);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlAirWishSpdCap(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.air_wishspd_cap + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.air_wishspd_cap = (f32)data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.0f", g_HlMoveCfg.air_wishspd_cap);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlJumpSpeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.jump_speed_utick * 10.0f + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.jump_speed_utick = (f32)data->slider.value / 10.0f;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f", g_HlMoveCfg.jump_speed_utick);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlJumpLift(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (s32)(g_HlMoveCfg.jump_lift * 10.0f + 0.5f);
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.jump_lift = (f32)data->slider.value / 10.0f;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%.1f", g_HlMoveCfg.jump_lift);
+		break;
+	}
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerHlJumpGrace(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = g_HlMoveCfg.jump_grace_ticks;
+		break;
+	case MENUOP_SET:
+		g_HlMoveCfg.jump_grace_ticks = data->slider.value;
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d", g_HlMoveCfg.jump_grace_ticks);
+		break;
+	}
+	return 0;
+}
+
+struct menuitem g_ExtendedHlMoveMenuItems[] = {
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Max Speed",
+2000,
+menuhandlerHlMaxSpeed,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Bhop Max Speed",
+10000,
+menuhandlerHlBhopMaxSpeed,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Friction",
+200,
+menuhandlerHlFriction,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Stop Speed",
+500,
+menuhandlerHlStopSpeed,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Accelerate",
+1000,
+menuhandlerHlAccelerate,
+},
+{
+MENUITEMTYPE_SEPARATOR,
+0,
+0,
+0,
+0,
+NULL,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Air Accelerate",
+2000,
+menuhandlerHlAirAccelerate,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Air Wish Speed Cap",
+500,
+menuhandlerHlAirWishSpdCap,
+},
+{
+MENUITEMTYPE_SEPARATOR,
+0,
+0,
+0,
+0,
+NULL,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Jump Speed",
+200,
+menuhandlerHlJumpSpeed,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Jump Lift",
+200,
+menuhandlerHlJumpLift,
+},
+{
+MENUITEMTYPE_SLIDER,
+0,
+MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+(uintptr_t)"Jump Grace Ticks",
+30,
+menuhandlerHlJumpGrace,
+},
+{
+MENUITEMTYPE_SEPARATOR,
+0,
+0,
+0,
+0,
+NULL,
+},
+{
+MENUITEMTYPE_SELECTABLE,
+0,
+MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+L_OPTIONS_213,
+0,
+NULL,
+},
+{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedHlMoveMenuDialog = {
+MENUDIALOGTYPE_DEFAULT,
+(uintptr_t)"HL Movement",
+g_ExtendedHlMoveMenuItems,
+NULL,
+MENUDIALOGFLAG_LITERAL_TEXT,
+NULL,
+};
+
 struct menuitem g_ExtendedMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -1995,6 +2281,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		menuhandlerOpenBindsMenu,
 	},
 	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"HL Movement\n",
+		0,
+		(void *)&g_ExtendedHlMoveMenuDialog,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -2027,7 +2321,7 @@ void updateMaxAnisotropyLevel()
 	for (int i = 0; i < ARRAYCOUNT(g_ExtendedVideoMenuItems); ++i) {
 		struct menuitem *item = &g_ExtendedVideoMenuItems[i];
 		const char *text = menuResolveParam2Text(item);
-		
+
 		if (text && strstr(text, "Anisotropic Filtering") != NULL) {
 			item->param3 = videoGetMaxAnisotropyLevel();
 			break;
@@ -2038,5 +2332,6 @@ void updateMaxAnisotropyLevel()
 
 void optionsMenuInit()
 {
+	hlmoveCfgSetDefaults();
 	updateMaxAnisotropyLevel();
 }

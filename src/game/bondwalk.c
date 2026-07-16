@@ -1860,6 +1860,9 @@ void bwalkTick(void)
 	bwalkUpdatePrevPos();
 	bwalkUpdateTheta();
 	bmoveUpdateVerta();
+#ifndef PLATFORM_N64
+	hlmoveHandleCrouch();
+#endif
 	bwalk0f0c69b8();
 	bwalkUpdateVertical();
 #ifndef PLATFORM_N64

@@ -1,32 +1,3 @@
-/*
- * hlmove.c - Half-Life / Quake movement physics for Perfect Dark PC port
- *
- * Physics ported from Valve's pm_shared.c (Half-Life 1).
- *
- * Unit system
- * -----------
- *   All velocities are stored in world-units per second (u/s).
- *   Frame delta = velocity × dt, where dt = lvupdate60freal / 60  (seconds).
- *   bdeltapos.y (vertical) remains in PD's native u/tick convention.
- *
- *   PD gravity: 0.277777 u/tick² × (60 tick/s)² = 1000 u/s²
- *   Hard-land threshold: -13.333 u/tick = -800 u/s
- *
- * HL1 reference constants (all in u/s system)
- * --------------------------------------------
- *   sv_maxspeed      250 u/s
- *   sv_friction        4.0  (coefficient, per second)
- *   sv_stopspeed     100 u/s
- *   sv_accelerate     10.0
- *   sv_airaccelerate  10.0
- *   air wishspeed cap 30 u/s  (the bhop / strafe-jump mechanic lives here)
- *
- * Jump speed derivation
- * ---------------------
- *   target height ≈ 45 u, PD gravity = 1000 u/s²
- *   v0 = sqrt(2 × 1000 × 45) = 300 u/s = 5.0 u/tick @ 60 fps
- */
-
 #ifndef PLATFORM_N64
 
 #include <ultra64.h>
@@ -39,46 +10,42 @@
 #include "game/bondwalk.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/options.h"
 #include "data.h"
 #include "types.h"
+#include "lib/joy.h"
 #include "hlmove.h"
 
-#define HL_MAXSPEED          500.0f   /* u/s – ground max speed             */
-#define HL_FRICTION            4.0f   /* ground friction coefficient         */
-#define HL_STOPSPEED         50.0f   /* u/s – full-friction threshold       */
-#define HL_ACCELERATE         20.0f   /* ground acceleration multiplier      */
-#define HL_AIRACCELERATE      30.0f   /* air acceleration multiplier         */
+struct HlMoveCfg g_HlMoveCfg;
 
+void hlmoveCfgSetDefaults(void)
+{
+    g_HlMoveCfg.maxspeed = 500.0f;
+    g_HlMoveCfg.bhop_maxspeed = 3500.0f;
+    g_HlMoveCfg.friction = 4.0f;
+    g_HlMoveCfg.stopspeed = 50.0f;
+    g_HlMoveCfg.accelerate = 20.0f;
+    g_HlMoveCfg.airaccelerate = 30.0f;
+    g_HlMoveCfg.air_wishspd_cap = 50.0f;
+    g_HlMoveCfg.jump_speed_utick = 6.5f;
+    g_HlMoveCfg.jump_lift = 6.0f;
+    g_HlMoveCfg.jump_grace_ticks = 8;
+}
 
-#define HL_AIR_WISHSPD_CAP   50.0f
-
-
-#define HL_JUMP_SPEED_UTICK   5.0f
-
-
-#define HL_JUMP_LIFT          3.0
-
-
-/* Horizontal velocity in world-units per second */
+static int s_justJumped = 0;
 static float s_velX = 0.0f;
 static float s_velZ = 0.0f;
 
-/* Jump button state from previous tick (unused currently, kept for reference) */
-static int s_prevJumpHeld = 0;
-
-/* Elapsed time in seconds for this tick */
 static float frametime(void)
 {
     return g_Vars.lvupdate60freal / 60.0f;
 }
 
-/* 2-D dot product */
 static float dot2(float ax, float az, float bx, float bz)
 {
     return ax * bx + az * bz;
 }
 
-/* Normalise a 2-D vector; returns original length */
 static float normalize2(float *x, float *z)
 {
     float len = sqrtf((*x) * (*x) + (*z) * (*z));
@@ -90,41 +57,39 @@ static float normalize2(float *x, float *z)
     return len;
 }
 
-//TODO: FIX
 static int isOnGround(void)
 {
+    if (s_justJumped > 0)
+        return 0;
+
     float diff = g_Vars.currentplayer->vv_manground
                  - g_Vars.currentplayer->vv_ground;
-    return diff <= 2.0f && g_Vars.currentplayer->bdeltapos.y <= 0.001f;
+    return diff <= 1.0f;
+}
+
+static s8 getContpad(void)
+{
+    return optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 }
 
 static void readMoveInput(float *fmove, float *smove)
 {
-    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    s8 contpad = getContpad();
+
+    float sf = joyGetStickY(contpad) / 80.0f;
+    float ss = joyGetStickX(contpad) / 80.0f;
+    if (sf > 1.0f) sf = 1.0f;
+    if (sf < -1.0f) sf = -1.0f;
+    if (ss > 1.0f) ss = 1.0f;
+    if (ss < -1.0f) ss = -1.0f;
+
+    u32 btns = joyGetButtons(contpad, U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS);
     float kf = 0.0f, ks = 0.0f;
+    if (btns & U_CBUTTONS) kf += 1.0f;
+    if (btns & D_CBUTTONS) kf -= 1.0f;
+    if (btns & L_CBUTTONS) ks -= 1.0f;
+    if (btns & R_CBUTTONS) ks += 1.0f;
 
-    if (keys)
-    {
-        //TODO: move to the in built system
-        if (keys[SDL_SCANCODE_W]) kf += 1.0f;
-        if (keys[SDL_SCANCODE_S]) kf -= 1.0f;
-        if (keys[SDL_SCANCODE_D]) ks += 1.0f;
-        if (keys[SDL_SCANCODE_A]) ks -= 1.0f;
-    }
-
-    float sf = 0.0f, ss = 0.0f;
-    SDL_GameController *gc = SDL_GameControllerOpen(0);
-    if (gc)
-    {
-        const float DEAD = 0.12f;
-        float lx = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
-        float ly = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
-        SDL_GameControllerClose(gc);
-        if (lx < -DEAD || lx > DEAD) ss = lx;
-        if (ly < -DEAD || ly > DEAD) sf = -ly; /* SDL Y is inverted */
-    }
-
-    /* Prefer whichever source has larger magnitude on each axis */
     *fmove = (fabsf(kf) >= fabsf(sf)) ? kf : sf;
     *smove = (fabsf(ks) >= fabsf(ss)) ? ks : ss;
 }
@@ -138,8 +103,8 @@ static void applyGroundFriction(float dt)
         return;
     }
 
-    float control = (speed < HL_STOPSPEED) ? HL_STOPSPEED : speed;
-    float drop = control * HL_FRICTION * dt;
+    float control = (speed < g_HlMoveCfg.stopspeed) ? g_HlMoveCfg.stopspeed : speed;
+    float drop = control * g_HlMoveCfg.friction * dt;
     float newspeed = speed - drop;
     if (newspeed < 0.0f) newspeed = 0.0f;
 
@@ -165,15 +130,14 @@ static void applyAccelerate(float wdx, float wdz, float wishspeed,
 static void applyAirAccelerate(float wdx, float wdz, float wishspeed,
                                float accel, float dt)
 {
-    float wishspd_capped = (wishspeed > HL_AIR_WISHSPD_CAP)
-                               ? HL_AIR_WISHSPD_CAP
+    float wishspd_capped = (wishspeed > g_HlMoveCfg.air_wishspd_cap)
+                               ? g_HlMoveCfg.air_wishspd_cap
                                : wishspeed;
 
     float currentspeed = dot2(s_velX, s_velZ, wdx, wdz);
     float addspeed = wishspd_capped - currentspeed;
     if (addspeed <= 0.0f) return;
 
-    /* Use full wishspeed for the rate so air-strafing feels snappy */
     float accelspeed = accel * wishspeed * dt;
     if (accelspeed > addspeed) accelspeed = addspeed;
 
@@ -185,7 +149,7 @@ void hlmoveInit(void)
 {
     s_velX = 0.0f;
     s_velZ = 0.0f;
-    s_prevJumpHeld = 0;
+    s_justJumped = 0;
 }
 
 void hlmoveGetDelta(struct coord *out_delta)
@@ -209,8 +173,8 @@ void hlmoveGetDelta(struct coord *out_delta)
     float wvz = fw_z * fmove + rt_z * smove;
 
     float wv_len = sqrtf(wvx * wvx + wvz * wvz);
-    float wishspeed = wv_len * HL_MAXSPEED;
-    if (wishspeed > HL_MAXSPEED) wishspeed = HL_MAXSPEED;
+    float wishspeed = wv_len * g_HlMoveCfg.maxspeed;
+    if (wishspeed > g_HlMoveCfg.maxspeed) wishspeed = g_HlMoveCfg.maxspeed;
 
     float wdx = wvx, wdz = wvz;
     normalize2(&wdx, &wdz);
@@ -220,42 +184,81 @@ void hlmoveGetDelta(struct coord *out_delta)
     if (onground)
     {
         applyGroundFriction(dt);
-        applyAccelerate(wdx, wdz, wishspeed, HL_ACCELERATE, dt);
+        applyAccelerate(wdx, wdz, wishspeed, g_HlMoveCfg.accelerate, dt);
     } else
     {
-        applyAirAccelerate(wdx, wdz, wishspeed, HL_AIRACCELERATE, dt);
+        float air_wishspeed = wv_len * g_HlMoveCfg.bhop_maxspeed;
+        if (air_wishspeed > g_HlMoveCfg.bhop_maxspeed) air_wishspeed = g_HlMoveCfg.bhop_maxspeed;
+        applyAirAccelerate(wdx, wdz, air_wishspeed, g_HlMoveCfg.airaccelerate, dt);
     }
 
     out_delta->x = s_velX * dt;
     out_delta->z = s_velZ * dt;
 
     float speed2d = sqrtf(s_velX * s_velX + s_velZ * s_velZ);
-    float norm = (HL_MAXSPEED > 0.0f) ? (1.0f / HL_MAXSPEED) : 1.0f;
+    float norm = (g_HlMoveCfg.maxspeed > 0.0f) ? (1.0f / g_HlMoveCfg.maxspeed) : 1.0f;
 
     g_Vars.currentplayer->speedforwards = dot2(s_velX, s_velZ, fw_x, fw_z) * norm;
     g_Vars.currentplayer->speedsideways = dot2(s_velX, s_velZ, rt_x, rt_z) * norm;
     g_Vars.currentplayer->speedgo = speed2d * norm;
 }
 
-//TODO: FEED INTO EXISTING MOVEMENT SYSTEM
 int hlmoveJumpHeld(void)
 {
+    s8 contpad = getContpad();
+
+    if (joyGetButtons(contpad, A_BUTTON | BUTTON_HALF_CROUCH))
+        return 1;
+
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
-    if (!keys) return 0;
-    return keys[SDL_SCANCODE_SPACE] != 0;
+    if (keys && keys[SDL_SCANCODE_SPACE])
+        return 1;
+
+    return 0;
 }
 
 void hlmoveHandleJump(void)
 {
-    int jumpHeld = hlmoveJumpHeld();
+    if (s_justJumped > 0)
+        s_justJumped--;
 
-    if (jumpHeld && isOnGround())
+    if (hlmoveJumpHeld() && isOnGround())
     {
-        g_Vars.currentplayer->bdeltapos.y = HL_JUMP_SPEED_UTICK;
-        g_Vars.currentplayer->vv_manground = g_Vars.currentplayer->vv_ground + HL_JUMP_LIFT;
+        g_Vars.currentplayer->bdeltapos.y = g_HlMoveCfg.jump_speed_utick;
+        g_Vars.currentplayer->vv_manground = g_Vars.currentplayer->vv_ground
+                                             + g_HlMoveCfg.jump_lift;
+        s_justJumped = g_HlMoveCfg.jump_grace_ticks;
     }
-
-    s_prevJumpHeld = jumpHeld;
 }
 
-#endif /* !PLATFORM_N64 */
+void hlmoveHandleCrouch(void)
+{
+    s8 contpad = getContpad();
+    u32 btns = joyGetButtons(contpad, BUTTON_FULL_CROUCH);
+
+    s32 targetpos;
+    f32 targetoffset;
+
+    if (btns & BUTTON_FULL_CROUCH)
+    {
+        targetpos = CROUCHPOS_SQUAT;
+        targetoffset = -90.0f;
+    } else
+    {
+        targetpos = CROUCHPOS_STAND;
+        targetoffset = 0.0f;
+    }
+
+    if (targetpos > g_Vars.currentplayer->crouchpos && !bwalkCanUncrouch())
+        return;
+
+    g_Vars.currentplayer->crouchpos = targetpos;
+    g_Vars.currentplayer->crouchoffset = targetoffset;
+    g_Vars.currentplayer->crouchspeed = 0.0f;
+
+    bwalkUpdateCrouchOffsetReal();
+
+    g_Vars.currentplayer->guncloseroffset = targetoffset / -90.0f;
+}
+
+#endif
