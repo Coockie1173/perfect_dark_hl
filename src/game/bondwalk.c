@@ -25,6 +25,9 @@
 #include "lib/anim.h"
 #include "lib/collision.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "hlmove.h"
+#endif
 #include "types.h"
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
@@ -53,6 +56,9 @@ void bwalkInit(void)
 
 	g_Vars.currentplayer->isfalling = false;
 	g_Vars.currentplayer->fallstart = 0;
+#ifndef PLATFORM_N64
+	hlmoveInit();
+#endif
 
 	g_Vars.currentplayer->gunextraaimx = 0;
 	g_Vars.currentplayer->gunextraaimy = 0;
@@ -1002,10 +1008,12 @@ void bwalkUpdateVertical(void)
 				g_Vars.currentplayer->isfalling = true;
 				g_Vars.currentplayer->fallstart = g_Vars.lvframe60;
 			} else {
+#ifdef PLATFORM_N64
 				if (g_Vars.lvframe60 - g_Vars.currentplayer->fallstart > TICKS(240)) {
 					// Have been falling for 4 seconds
 					playerDie(true);
 				}
+#endif
 			}
 		} else {
 			// Not falling
@@ -1667,8 +1675,17 @@ void bwalk0f0c69b8(void)
 		}
 #endif
 
+#ifdef PLATFORM_N64
 		spcc.f[0] += (spd8 * g_Vars.currentplayer->bond2.unk00.f[0] - spdc * g_Vars.currentplayer->bond2.unk00.f[2]) * g_Vars.lvupdate60freal;
 		spcc.f[2] += (spd8 * g_Vars.currentplayer->bond2.unk00.f[2] + spdc * g_Vars.currentplayer->bond2.unk00.f[0]) * g_Vars.lvupdate60freal;
+#else
+		{
+			struct coord hldelta;
+			hlmoveGetDelta(&hldelta);
+			spcc.f[0] += hldelta.f[0];
+			spcc.f[2] += hldelta.f[2];
+		}
+#endif
 		spcc.f[0] += spb4;
 		spcc.f[2] += spb0;
 
@@ -1845,6 +1862,9 @@ void bwalkTick(void)
 	bmoveUpdateVerta();
 	bwalk0f0c69b8();
 	bwalkUpdateVertical();
+#ifndef PLATFORM_N64
+	hlmoveHandleJump();
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 	{
