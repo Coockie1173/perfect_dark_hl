@@ -27,6 +27,7 @@
 #include "data.h"
 #ifndef PLATFORM_N64
 #include "hlmove.h"
+#include "bgcollision.h"
 #endif
 #include "types.h"
 #ifndef PLATFORM_N64
@@ -226,6 +227,15 @@ s32 bwalkTryMoveUpwards(f32 amount)
 
 	ymin -= 0.1f;
 
+#ifndef PLATFORM_N64
+	if ((types & CDTYPE_BG) && amount > 0.0f && bgColPlayerHasCeiling(&newpos, rooms, radius, ymax + amount)) {
+		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+		g_Vars.enableslopes = true;
+		return CDRESULT_COLLISION;
+	}
+	types &= ~CDTYPE_BG;
+#endif
+
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
 			ymin - g_Vars.currentplayer->prop->pos.y);
@@ -272,6 +282,15 @@ bool bwalkCanMoveUpwards(f32 amount)
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
 
 	ymin -= 0.1f;
+
+#ifndef PLATFORM_N64
+	if ((types & CDTYPE_BG) && amount > 0.0f && bgColPlayerHasCeiling(&newpos, rooms, radius, ymax + amount)) {
+		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+		g_Vars.enableslopes = true;
+		return false;
+	}
+	types &= ~CDTYPE_BG;
+#endif
 
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
@@ -340,6 +359,19 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 #endif
 
 		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &dstpos, dstrooms);
+
+#ifndef PLATFORM_N64
+		if ((vel->x != 0.0f || vel->z != 0.0f) && (types & CDTYPE_BG)) {
+			struct coord bghzdelta;
+			bghzdelta.x = dstpos.x - g_Vars.currentplayer->prop->pos.x;
+			bghzdelta.y = 0.0f;
+			bghzdelta.z = dstpos.z - g_Vars.currentplayer->prop->pos.z;
+			bgColPlayerHorizMove(&g_Vars.currentplayer->prop->pos, sp64, &bghzdelta, radius, ymax, ymin);
+			dstpos.x = g_Vars.currentplayer->prop->pos.x + bghzdelta.x;
+			dstpos.z = g_Vars.currentplayer->prop->pos.z + bghzdelta.z;
+		}
+		types &= ~CDTYPE_BG;
+#endif
 
 		copyrooms = true;
 
@@ -835,10 +867,23 @@ void bwalkUpdateVertical(void)
 
 	roomsCopy(g_Vars.currentplayer->prop->rooms, rooms);
 	bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, rooms);
+#ifndef PLATFORM_N64
+	{
+		f32 tile_gnd;
+		f32 bg_gnd;
+		tile_gnd = cdFindGroundInfoAtCyl(&testpos, g_Vars.currentplayer->bond2.radius, rooms,
+				&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
+				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
+				&newinlift, &lift);
+		bg_gnd = bgColPlayerFindGround(&testpos, rooms, g_Vars.currentplayer->bond2.radius);
+		ground = (bg_gnd > -30000.0f) ? bg_gnd : tile_gnd;
+	}
+#else
 	ground = cdFindGroundInfoAtCyl(&testpos, g_Vars.currentplayer->bond2.radius, rooms,
 			&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
 			&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 			&newinlift, &lift);
+#endif
 	ground += g_Vars.currentplayer->bondonground;
 
 	if (ground < -30000) {
